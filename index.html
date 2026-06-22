@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>四分木(Quadtree)画像分割ツール</title>
+<style>
+  :root {
+    --bg: #1a1a1a;
+    --panel: #242424;
+    --border: #3a3a3a;
+    --text: #e8e8e8;
+    --text-sub: #a0a0a0;
+    --accent: #378ADD;
+    --accent-dark: #185FA5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
+    margin: 0;
+    padding: 24px;
+    display: flex;
+    justify-content: center;
+  }
+  .wrap { width: 100%; max-width: 720px; }
+  h1 { font-size: 20px; font-weight: 500; margin: 0 0 4px; }
+  .sub { font-size: 13px; color: var(--text-sub); margin: 0 0 24px; }
+  .panel {
+    background: var(--panel);
+    border: 0.5px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .file-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .file-label {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 14px; padding: 9px 16px;
+    border: 0.5px solid var(--border); border-radius: 8px;
+    cursor: pointer; background: #2c2c2c;
+  }
+  .file-label:hover { background: #333; }
+  input[type=file] { display: none; }
+  #fileName { font-size: 13px; color: var(--text-sub); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 4px; }
+  label.field-label { font-size: 13px; color: var(--text-sub); display: block; margin-bottom: 6px; }
+  .slider-row { display: flex; align-items: center; gap: 10px; }
+  input[type=range] {
+    flex: 1; height: 4px; -webkit-appearance: none; background: #3a3a3a; border-radius: 2px; outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); cursor: pointer;
+  }
+  .val { font-size: 13px; font-weight: 500; min-width: 30px; text-align: right; }
+  button {
+    border: 0.5px solid var(--border); border-radius: 8px;
+    background: #2c2c2c; color: var(--text);
+    font-size: 14px; padding: 10px 16px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  button:hover:not(:disabled) { background: #333; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: var(--accent-dark); border-color: var(--accent); }
+  button.primary:hover:not(:disabled) { background: var(--accent); }
+  .run-row { margin-top: 16px; }
+  .run-row button { width: 100%; padding: 12px; font-size: 15px; }
+  canvas { width: 100%; border-radius: 8px; border: 0.5px solid var(--border); display: block; background: #111; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stat-card { background: #2c2c2c; border-radius: 8px; padding: 14px; }
+  .stat-label { font-size: 12px; color: var(--text-sub); margin: 0 0 4px; }
+  .stat-value { font-size: 20px; font-weight: 500; margin: 0; }
+  .dl-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .dl-row button { flex: 1; min-width: 140px; }
+  .dl-row a { flex: 1; min-width: 140px; text-decoration: none; }
+  .dl-row a button { width: 100%; }
+  .hidden { display: none !important; }
+  .error { color: #f09595; font-size: 13px; margin-top: 10px; }
+  .note { font-size: 12px; color: var(--text-sub); margin-top: 12px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>四分木(Quadtree)画像・動画分割ツール</h1>
+  <p class="sub">画像または動画(mp4)をインポートして正方形に分割し、X座標・Y座標・明るさ・色・大きさを記録した1つのテキストファイルを書き出します。動画の場合はフレームごとに分割し、フレーム単位の正方形数も別ファイルで出力します。</p>
+
+  <div class="panel">
+    <div class="file-row">
+      <label class="file-label">
+        画像 / 動画を選択
+        <input type="file" id="fileInput" accept="image/*,video/mp4">
+      </label>
+      <span id="fileName">未選択</span>
+    </div>
+  </div>
+
+  <div class="panel hidden" id="videoFields">
+    <div class="grid2">
+      <div>
+        <label class="field-label">FPS(1秒あたりのフレーム数)</label>
+        <input type="number" id="fpsInput" min="0.1" step="0.1" value="5" style="width:100%; padding:9px 12px; border-radius:8px; border:0.5px solid var(--border); background:#2c2c2c; color:var(--text); font-size:14px;">
+      </div>
+      <div>
+        <label class="field-label">トリミング範囲(秒)</label>
+        <div style="display:flex; gap:8px;">
+          <input type="number" id="trimStart" min="0" step="0.1" value="0" style="width:50%; padding:9px 12px; border-radius:8px; border:0.5px solid var(--border); background:#2c2c2c; color:var(--text); font-size:14px;">
+          <input type="number" id="trimEnd" min="0" step="0.1" value="0" style="width:50%; padding:9px 12px; border-radius:8px; border:0.5px solid var(--border); background:#2c2c2c; color:var(--text); font-size:14px;">
+        </div>
+      </div>
+    </div>
+    <p class="note" id="videoInfo"></p>
+    <video id="videoEl" style="display:none" muted playsinline preload="metadata"></video>
+  </div>
+
+  <div class="panel">
+    <div class="grid2">
+      <div>
+        <label class="field-label">分割の細かさ(色差のしきい値)</label>
+        <div class="slider-row">
+          <input type="range" id="threshold" min="5" max="300" value="30" step="1">
+          <span class="val" id="thresholdOut">30</span>
+        </div>
+      </div>
+      <div>
+        <label class="field-label">最小サイズ(px)</label>
+        <div class="slider-row">
+          <input type="range" id="minSize" min="1" max="32" value="4" step="1">
+          <span class="val" id="minSizeOut">4</span>
+        </div>
+      </div>
+    </div>
+    <div class="grid2" style="margin-top:16px; align-items:end;">
+      <div>
+        <label class="field-label">目標の正方形の数</label>
+        <input type="number" id="targetCount" min="1" step="1" placeholder="例: 7000" style="width:100%; padding:9px 12px; border-radius:8px; border:0.5px solid var(--border); background:#2c2c2c; color:var(--text); font-size:14px;">
+      </div>
+      <div>
+        <button id="autoBtn" style="width:100%;">この数に自動調整</button>
+      </div>
+    </div>
+    <p class="note" id="autoStatus" style="margin-top:8px;"></p>
+    <div class="run-row">
+      <button class="primary" id="runBtn" disabled>分割を実行</button>
+    </div>
+    <p id="errorMsg" class="error hidden"></p>
+  </div>
+
+  <div class="panel hidden" id="resultPanel">
+    <canvas id="previewCanvas"></canvas>
+    <div class="stats" style="margin-top:16px; grid-template-columns: repeat(4,1fr)">
+      <div class="stat-card">
+        <p class="stat-label">正方形の数</p>
+        <p class="stat-value" id="statCount">-</p>
+      </div>
+      <div class="stat-card">
+        <p class="stat-label">画像サイズ</p>
+        <p class="stat-value" id="statImgSize" style="font-size:14px; line-height:1.5;">-</p>
+      </div>
+      <div class="stat-card">
+        <p class="stat-label">実質解像度</p>
+        <p class="stat-value" id="statEffRes">-</p>
+      </div>
+      <div class="stat-card">
+        <p class="stat-label">最小/最大サイズ</p>
+        <p class="stat-value" id="statMinMax">-</p>
+      </div>
+    </div>
+    <div class="dl-row" id="dlRow">
+      <a id="dlAllLink" download="data.txt"><button id="dlAll">data.txtをダウンロード</button></a>
+      <a id="dlFrameLenLink" download="frame_lengths.txt"><button id="dlFrameLen">frame_lengths.txtをダウンロード</button></a>
+    </div>
+    <p class="note">
+      色・明るさはScratchの「画像効果」の値で記録しています。<br>
+      <b>色</b>: 0〜200。0が赤、33が黄、67が緑、100が水色(シアン)、133が青、167がマゼンタ、200でまた赤。<br>
+      <b>明るさ</b>: -100〜0。-100が黒、0が元の明るさ(最大輝度)。<br>
+      各正方形の代表色は領域内の平均色(RGB平均)から変換しています。
+    </p>
+    <p class="note">
+      座標はScratch座標系(中心が原点、X: -240〜240、Y: -180〜180)で、正方形の中心位置を示しています。サイズはピクセル数(辺の長さ)です。<br>
+      各フレーム(画像の場合は1フレームのみ)の中で、「色」の値が小さい順に並べ替えてから記録しています。色そのものの値はファイルには含めません。<br>
+      ダウンロードされる<b>data.txt</b>は1つのファイルです。動画全体(全フレーム合計)の正方形の数をNとすると、上から順に「X座標(N行)→Y座標(N行)→明るさ(N行)→色(N行)→大きさ(N行)」の5つのブロックを縦に連結しています。合計でN×5行になります。フレームごとの塊には分かれておらず、フレームをまたいで同じ種類の値がまとまっています(例: X座標ブロックの中は フレーム1のX座標→フレーム2のX座標→…の順)。<br>
+      <b>frame_lengths.txt</b>には、各フレームに含まれる正方形の数を1行ずつ記録しています(画像の場合は1行のみ)。この行を上から順に読んでいくことで、data.txtの各ブロックのどこからどこまでが何フレーム目のデータかを区切ることができます(画像の場合は使わなくても構いません)。<br>
+      ダウンロードが始まらない場合は、ボタンを右クリックして「リンク先を保存」を選ぶか、別のブラウザ(Chrome/Edge/Firefoxなど)でこのHTMLファイルを開いて試してください。
+    </p>
+  </div>
+</div>
+
+<script>
+(function(){
+  const fileInput = document.getElementById('fileInput');
+  const fileName = document.getElementById('fileName');
+  const runBtn = document.getElementById('runBtn');
+  const thresholdInput = document.getElementById('threshold');
+  const thresholdOut = document.getElementById('thresholdOut');
+  const minSizeInput = document.getElementById('minSize');
+  const targetCountInput = document.getElementById('targetCount');
+  const autoBtn = document.getElementById('autoBtn');
+  const autoStatus = document.getElementById('autoStatus');
+  const minSizeOut = document.getElementById('minSizeOut');
+  const resultPanel = document.getElementById('resultPanel');
+  const previewCanvas = document.getElementById('previewCanvas');
+  const errorMsg = document.getElementById('errorMsg');
+  const videoFieldsPanel = document.getElementById('videoFields');
+  const fpsInput = document.getElementById('fpsInput');
+  const trimStartInput = document.getElementById('trimStart');
+  const trimEndInput = document.getElementById('trimEnd');
+  const videoInfo = document.getElementById('videoInfo');
+  const videoEl = document.getElementById('videoEl');
+
+  let mode = 'image'; // 'image' | 'video'
+  let img = null;
+  let imgW = 0, imgH = 0;
+  let videoDuration = 0;
+
+  thresholdInput.addEventListener('input', () => { thresholdOut.textContent = thresholdInput.value; });
+  minSizeInput.addEventListener('input', () => { minSizeOut.textContent = minSizeInput.value; });
+
+  function showError(msg){ errorMsg.textContent = msg; errorMsg.classList.remove('hidden'); }
+  function clearError(){ errorMsg.classList.add('hidden'); }
+
+  fileInput.addEventListener('change', (e) => {
+    clearError();
+    const file = e.target.files[0];
+    if (!file) return;
+    fileName.textContent = file.name;
+    resultPanel.classList.add('hidden');
+    runBtn.disabled = true;
+
+    if (file.type.startsWith('video/')){
+      mode = 'video';
+      videoFieldsPanel.classList.remove('hidden');
+      img = null;
+      const url = URL.createObjectURL(file);
+      videoEl.src = url;
+      videoEl.load();
+      videoEl.onloadedmetadata = () => {
+        videoDuration = videoEl.duration;
+        trimStartInput.value = 0;
+        trimEndInput.value = videoDuration.toFixed(2);
+        trimEndInput.max = videoDuration.toFixed(2);
+        videoInfo.textContent = `動画の長さ: ${videoDuration.toFixed(2)}秒 / 解像度: ${videoEl.videoWidth}x${videoEl.videoHeight}`;
+        runBtn.disabled = false;
+      };
+      videoEl.onerror = () => {
+        const codeMap = {
+          1: 'MEDIA_ERR_ABORTED(読み込みが中断されました)',
+          2: 'MEDIA_ERR_NETWORK(ネットワークエラー)',
+          3: 'MEDIA_ERR_DECODE(デコードエラー。コーデックが対応していない可能性があります)',
+          4: 'MEDIA_ERR_SRC_NOT_SUPPORTED(この形式/コーデックはブラウザに対応していません)'
+        };
+        const code = videoEl.error ? videoEl.error.code : null;
+        const detail = code ? (codeMap[code] || `エラーコード ${code}`) : '詳細不明';
+        showError(`動画を読み込めませんでした(${detail})。HEVC/H.265などコーデックが原因の場合は、H.264形式のmp4に変換するか、別のブラウザ(Chrome/Edge推奨)でお試しください。`);
+      };
+    } else {
+      mode = 'image';
+      videoFieldsPanel.classList.add('hidden');
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const image = new Image();
+        image.onload = () => {
+          img = image;
+          imgW = image.naturalWidth;
+          imgH = image.naturalHeight;
+          runBtn.disabled = false;
+        };
+        image.onerror = () => showError('画像を読み込めませんでした。別のファイルを試してください。');
+        image.src = ev.target.result;
+      };
+      reader.onerror = () => showError('ファイルの読み込みに失敗しました。');
+      reader.readAsDataURL(file);
+    }
+  });
+
+  function rgbToScratchEffect(r, g, b){
+    // RGB(0-255) -> Scratch色効果: 色(0-200), 明るさ(-100-0)
+    // 色: HSV色相(0-360) ÷ 1.8 = color effect(0-200)
+    // 明るさ: HSV明度(0-1) × 100 - 100 → -100(黒)〜0(最大輝度)
+    const rN = r / 255, gN = g / 255, bN = b / 255;
+    const max = Math.max(rN, gN, bN);
+    const min = Math.min(rN, gN, bN);
+    const delta = max - min;
+
+    let h = 0;
+    if (delta !== 0){
+      if (max === rN){
+        h = ((gN - bN) / delta) % 6;
+      } else if (max === gN){
+        h = (bN - rN) / delta + 2;
+      } else {
+        h = (rN - gN) / delta + 4;
+      }
+      h *= 60; // 0-360
+      if (h < 0) h += 360;
+    }
+    const colorEffect = Math.round(h / 1.8); // 0-200
+    const brightnessEffect = Math.round(max * 100 - 100); // -100〜0
+
+    return { colorEffect, brightnessEffect };
+  }
+
+  function buildQuadtree(data, w, h, threshold, minSize){
+    function getPixel(x, y){
+      const idx = (y * w + x) * 4;
+      return [data[idx], data[idx+1], data[idx+2]];
+    }
+    function regionStats(x0, y0, size){
+      const x1 = Math.min(x0 + size, w);
+      const y1 = Math.min(y0 + size, h);
+      let rMin=255,gMin=255,bMin=255,rMax=0,gMax=0,bMax=0,count=0;
+      let rSum=0,gSum=0,bSum=0;
+      for (let yy=y0; yy<y1; yy++){
+        for (let xx=x0; xx<x1; xx++){
+          const [r,g,b] = getPixel(xx,yy);
+          count++;
+          rSum+=r; gSum+=g; bSum+=b;
+          if(r<rMin)rMin=r; if(g<gMin)gMin=g; if(b<bMin)bMin=b;
+          if(r>rMax)rMax=r; if(g>gMax)gMax=g; if(b>bMax)bMax=b;
+        }
+      }
+      const range = Math.max(rMax-rMin, gMax-gMin, bMax-bMin);
+      const avgR = count > 0 ? rSum / count : 0;
+      const avgG = count > 0 ? gSum / count : 0;
+      const avgB = count > 0 ? bSum / count : 0;
+      return { range, count, avgR, avgG, avgB };
+    }
+    const leaves = [];
+    function recurse(x0, y0, size){
+      if (x0 >= w || y0 >= h) return;
+      const { range, count, avgR, avgG, avgB } = regionStats(x0, y0, size);
+      if (count === 0) return;
+      const atMinSize = size <= minSize;
+      const homogeneous = range <= threshold;
+      if (atMinSize || homogeneous){
+        leaves.push({ x0, y0, size, avgR, avgG, avgB });
+        return;
+      }
+      const half = size / 2;
+      recurse(x0, y0, half);
+      recurse(x0+half, y0, half);
+      recurse(x0, y0+half, half);
+      recurse(x0+half, y0+half, half);
+    }
+    let rootSize = 1;
+    while (rootSize < Math.max(w,h)) rootSize *= 2;
+    recurse(0, 0, rootSize);
+    return leaves;
+  }
+
+  function getDownscaledFrameData(source, srcW, srcH){
+    // アスペクト比を維持したまま480x360に収める
+    const MAX_W = 480, MAX_H = 360;
+    const scale = Math.min(MAX_W / srcW, MAX_H / srcH, 1); // 元が小さければ拡大しない
+    const drawW = Math.round(srcW * scale);
+    const drawH = Math.round(srcH * scale);
+
+    const off = document.createElement('canvas');
+    off.width = drawW;
+    off.height = drawH;
+    const offCtx = off.getContext('2d', { willReadFrequently: true });
+    offCtx.drawImage(source, 0, 0, drawW, drawH);
+    const data = offCtx.getImageData(0, 0, drawW, drawH).data;
+    return { data, drawW, drawH };
+  }
+
+  function getDownscaledImageData(){
+    return getDownscaledFrameData(img, imgW, imgH);
+  }
+
+  function seekVideo(time){
+    return new Promise((resolve) => {
+      function onSeeked(){
+        videoEl.removeEventListener('seeked', onSeeked);
+        resolve();
+      }
+      videoEl.addEventListener('seeked', onSeeked);
+      videoEl.currentTime = time;
+    });
+  }
+
+  // 1フレーム分のピクセルデータから、色で並び替え済みの配列群を作る
+  function quadtreeFrameToSortedArrays(data, drawW, drawH, threshold, minSize){
+    const leaves = buildQuadtree(data, drawW, drawH, threshold, minSize);
+    const resultSizes = [];
+    const resultXs = [];
+    const resultYs = [];
+    const resultColors = [];
+    const resultBris = [];
+
+    for (const leaf of leaves){
+      const cxTopLeft = leaf.x0 + leaf.size/2;
+      const cyTopLeft = leaf.y0 + leaf.size/2;
+
+      const xNatural = Math.round(cxTopLeft - drawW / 2);
+      const yNatural = Math.round(drawH / 2 - cyTopLeft);
+
+      const { colorEffect, brightnessEffect } = rgbToScratchEffect(leaf.avgR, leaf.avgG, leaf.avgB);
+
+      resultSizes.push(Math.round(leaf.size));
+      resultXs.push(xNatural);
+      resultYs.push(yNatural);
+      resultColors.push(colorEffect);
+      resultBris.push(brightnessEffect);
+    }
+
+    // 色(colorEffect)が同じもの同士が連続するように並び替える(フレーム内のみ)
+    const order = resultSizes.map((_, i) => i);
+    order.sort((a, b) => resultColors[a] - resultColors[b]);
+
+    return {
+      leaves,
+      sizes: order.map(i => resultSizes[i]),
+      xs: order.map(i => resultXs[i]),
+      ys: order.map(i => resultYs[i]),
+      colors: order.map(i => resultColors[i]),
+      bris: order.map(i => resultBris[i])
+    };
+  }
+
+  function setDownload(linkId, arr){
+    const text = arr.join('\n');
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.getElementById(linkId);
+    link.href = url;
+  }
+
+  function drawPreview(source, drawW, drawH, leaves){
+    previewCanvas.width = drawW;
+    previewCanvas.height = drawH;
+    const pctx = previewCanvas.getContext('2d');
+    pctx.drawImage(source, 0, 0, drawW, drawH);
+    pctx.strokeStyle = 'rgba(55,138,221,0.9)';
+    pctx.lineWidth = Math.max(1, Math.min(drawW, drawH) / 400);
+    for (const leaf of leaves){
+      const x1 = Math.min(leaf.x0 + leaf.size, drawW);
+      const y1 = Math.min(leaf.y0 + leaf.size, drawH);
+      pctx.strokeRect(leaf.x0, leaf.y0, x1 - leaf.x0, y1 - leaf.y0);
+    }
+  }
+
+  // 全フレームの結果を、動画全体でX→Y→明るさ→色→大きさの5ブロックにまとめてダウンロード用にセットする
+  function finalizeOutput(frames, drawW, drawH, minSize){
+    const allXs = [], allYs = [], allBris = [], allColors = [], allSizes = [], frameLengths = [];
+    let totalCount = 0;
+    let minSizeVal = Infinity, maxSizeVal = -Infinity;
+
+    for (const f of frames){
+      allXs.push(...f.xs);
+      allYs.push(...f.ys);
+      allBris.push(...f.bris);
+      allColors.push(...f.colors);
+      allSizes.push(...f.sizes);
+      frameLengths.push(f.sizes.length);
+      totalCount += f.sizes.length;
+      for (const s of f.sizes){
+        if (s < minSizeVal) minSizeVal = s;
+        if (s > maxSizeVal) maxSizeVal = s;
+      }
+    }
+
+    document.getElementById('statCount').textContent = totalCount.toLocaleString();
+    const effW = Math.floor(drawW / minSize);
+    const effH = Math.floor(drawH / minSize);
+    document.getElementById('statImgSize').textContent = drawW + 'x' + drawH;
+    document.getElementById('statEffRes').textContent = effW + 'x' + effH;
+    document.getElementById('statMinMax').textContent = totalCount ? (minSizeVal + ' / ' + maxSizeVal) : '-';
+
+    const combined = [].concat(allXs, allYs, allBris, allColors, allSizes);
+    setDownload('dlAllLink', combined);
+    setDownload('dlFrameLenLink', frameLengths);
+
+    if (frames.length > 1){
+      autoStatus.textContent = `フレーム数: ${frames.length.toLocaleString()} / 合計の正方形の数: ${totalCount.toLocaleString()} / 1フレームあたり平均 ${Math.round(totalCount / frames.length).toLocaleString()}個`;
+    } else {
+      autoStatus.textContent = '';
+    }
+  }
+
+  autoBtn.addEventListener('click', async () => {
+    clearError();
+    autoStatus.textContent = '';
+    const target = parseInt(targetCountInput.value, 10);
+    if (!target || target < 1){
+      showError('目標の正方形の数を入力してください。');
+      return;
+    }
+    const minSize = parseInt(minSizeInput.value, 10);
+
+    let data, drawW, drawH;
+    try {
+      autoBtn.disabled = true;
+      if (mode === 'image'){
+        if (!img) { showError('先に画像を選択してください。'); return; }
+        ({ data, drawW, drawH } = getDownscaledImageData());
+      } else {
+        if (!videoEl.src) { showError('先に動画を選択してください。'); return; }
+        const trimStart = parseFloat(trimStartInput.value) || 0;
+        await seekVideo(trimStart);
+        ({ data, drawW, drawH } = getDownscaledFrameData(videoEl, videoEl.videoWidth, videoEl.videoHeight));
+      }
+    } finally {
+      autoBtn.disabled = false;
+    }
+
+    // しきい値(分割の細かさ)を二分探索し、目標の正方形数に最も近いものを探す。
+    // しきい値が小さいほど分割が細かくなり、正方形の数は増える(単調減少の関係)。
+    const THRESH_MIN = parseInt(thresholdInput.min, 10);
+    const THRESH_MAX = parseInt(thresholdInput.max, 10);
+
+    let lo = THRESH_MIN, hi = THRESH_MAX;
+    let best = null; // { threshold, count, diff }
+
+    function evalThreshold(t){
+      const leaves = buildQuadtree(data, drawW, drawH, t, minSize);
+      const count = leaves.length;
+      const diff = Math.abs(count - target);
+      if (best === null || diff < best.diff){
+        best = { threshold: t, count, diff };
+      }
+      return count;
+    }
+
+    // 両端も候補として評価しておく
+    evalThreshold(lo);
+    evalThreshold(hi);
+
+    const MAX_ITER = 20;
+    for (let iter = 0; iter < MAX_ITER && lo < hi; iter++){
+      const mid = Math.floor((lo + hi) / 2);
+      if (mid === lo || mid === hi) break;
+      const count = evalThreshold(mid);
+      if (count > target){
+        // 正方形が多すぎる → しきい値を上げて分割を粗くする
+        lo = mid;
+      } else if (count < target){
+        // 正方形が少なすぎる → しきい値を下げて分割を細かくする
+        hi = mid;
+      } else {
+        break; // ぴったり一致
+      }
+    }
+
+    thresholdInput.value = best.threshold;
+    thresholdOut.textContent = best.threshold;
+    const sampleNote = mode === 'video' ? '(動画のトリミング開始位置のフレームを基準に調整しました)' : '';
+    autoStatus.textContent = `しきい値を ${best.threshold} に自動調整しました(正方形の数: ${best.count.toLocaleString()}個、目標: ${target.toLocaleString()}個)。${sampleNote}「分割を実行」を押して確定してください。`;
+  });
+
+  runBtn.addEventListener('click', async () => {
+    clearError();
+    try {
+      runBtn.disabled = true;
+      const threshold = parseInt(thresholdInput.value, 10);
+      const minSize = parseInt(minSizeInput.value, 10);
+
+      if (mode === 'image'){
+        if (!img) return;
+        const { data, drawW, drawH } = getDownscaledImageData();
+        const frame = quadtreeFrameToSortedArrays(data, drawW, drawH, threshold, minSize);
+        drawPreview(img, drawW, drawH, frame.leaves);
+        finalizeOutput([frame], drawW, drawH, minSize);
+      } else {
+        if (!videoEl.src) return;
+        const fps = parseFloat(fpsInput.value);
+        const trimStart = parseFloat(trimStartInput.value);
+        const trimEnd = parseFloat(trimEndInput.value);
+        if (!fps || fps <= 0){
+          showError('FPSを正しく入力してください。');
+          return;
+        }
+        if (isNaN(trimStart) || isNaN(trimEnd) || trimEnd <= trimStart){
+          showError('トリミング範囲を正しく入力してください(終了は開始より後にしてください)。');
+          return;
+        }
+
+        const numFrames = Math.max(1, Math.floor((trimEnd - trimStart) * fps));
+        const frames = [];
+        let lastDrawW = 0, lastDrawH = 0, lastLeaves = [];
+
+        for (let i = 0; i < numFrames; i++){
+          const t = Math.min(trimStart + i / fps, trimEnd);
+          await seekVideo(t);
+          const { data, drawW, drawH } = getDownscaledFrameData(videoEl, videoEl.videoWidth, videoEl.videoHeight);
+          const frame = quadtreeFrameToSortedArrays(data, drawW, drawH, threshold, minSize);
+          frames.push(frame);
+          lastDrawW = drawW; lastDrawH = drawH; lastLeaves = frame.leaves;
+          autoStatus.textContent = `フレームを処理中... (${i + 1}/${numFrames})`;
+        }
+
+        drawPreview(videoEl, lastDrawW, lastDrawH, lastLeaves);
+        finalizeOutput(frames, lastDrawW, lastDrawH, minSize);
+      }
+
+      resultPanel.classList.remove('hidden');
+    } catch(err){
+      showError('処理中にエラーが発生しました: ' + err.message);
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>
