@@ -430,7 +430,8 @@
   }
 
   function setDownload(linkId, arr){
-    const text = arr.join('\n');
+    const hexArr = arr.map(v => typeof v === 'number' ? '0x' + v.toString(16) : v);
+    const text = hexArr.join('\n');
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const link = document.getElementById(linkId);
