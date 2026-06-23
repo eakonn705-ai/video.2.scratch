@@ -181,7 +181,7 @@
       座標はScratch座標系(中心が原点、X: -240〜240、Y: -180〜180)で、正方形の中心位置を示しています。サイズはピクセル数(辺の長さ)です。<br>
       各フレーム(画像の場合は1フレームのみ)の中で、「色」の値が小さい順に並べ替えてから記録しています。色そのものの値はファイルには含めません。<br>
       ダウンロードされる<b>data.txt</b>は1つのファイルです。動画全体(全フレーム合計)の正方形の数をNとすると、上から順に「X座標(N行)→Y座標(N行)→明るさ(N行)→色(N行)→大きさ(N行)」の5つのブロックを縦に連結しています。合計でN×5行になります。フレームごとの塊には分かれておらず、フレームをまたいで同じ種類の値がまとまっています(例: X座標ブロックの中は フレーム1のX座標→フレーム2のX座標→…の順)。<br>
-      <b>frame_lengths.txt</b>には、各フレームに含まれる正方形の数を1行ずつ記録しています(画像の場合は1行のみ)。この行を上から順に読んでいくことで、data.txtの各ブロックのどこからどこまでが何フレーム目のデータかを区切ることができます(画像の場合は使わなくても構いません)。<br>
+      <b>frame_lengths.txt</b>には、各フレームまでの正方形の数の<b>累積合計(累積度数)</b>を1行ずつ記録しています(画像の場合は1行のみ)。例えば各フレームの正方形数が1111個・2222個・1111個なら、このファイルは「1111, 3333, 4444」という3行になります。この値を区切り位置として使うことで、data.txtの各ブロックのどこからどこまでが何フレーム目のデータかを区切ることができます(画像の場合は使わなくても構いません)。<br>
       ダウンロードが始まらない場合は、ボタンを右クリックして「リンク先を保存」を選ぶか、別のブラウザ(Chrome/Edge/Firefoxなど)でこのHTMLファイルを開いて試してください。
     </p>
   </div>
@@ -371,9 +371,19 @@
 
   function seekVideo(time){
     return new Promise((resolve) => {
+      // 要求した時刻と現在位置がほぼ同じ場合、ブラウザがシークを実質スキップし
+      // 'seeked' イベントが発火しないことがある。その場合は待たずに進む。
+      const EPS = 1 / 120; // 想定する最大フレームレートの半分程度の許容誤差
+      if (Math.abs(videoEl.currentTime - time) < EPS){
+        // 'seeked' を待たない場合でも、描画バッファが確実に更新されてから次に進む
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+        return;
+      }
       function onSeeked(){
         videoEl.removeEventListener('seeked', onSeeked);
-        resolve();
+        // 'seeked' 発火時点ではまだ実際の描画内容(デコード結果)が
+        // 更新されていないことがあるため、2フレーム分待って確実に反映させる
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
       }
       videoEl.addEventListener('seeked', onSeeked);
       videoEl.currentTime = time;
@@ -446,6 +456,7 @@
     const allXs = [], allYs = [], allBris = [], allColors = [], allSizes = [], frameLengths = [];
     let totalCount = 0;
     let minSizeVal = Infinity, maxSizeVal = -Infinity;
+    let cumulative = 0;
 
     for (const f of frames){
       allXs.push(...f.xs);
@@ -453,7 +464,8 @@
       allBris.push(...f.bris);
       allColors.push(...f.colors);
       allSizes.push(...f.sizes);
-      frameLengths.push(f.sizes.length);
+      cumulative += f.sizes.length;
+      frameLengths.push(cumulative);
       totalCount += f.sizes.length;
       for (const s of f.sizes){
         if (s < minSizeVal) minSizeVal = s;
