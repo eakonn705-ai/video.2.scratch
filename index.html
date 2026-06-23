@@ -429,14 +429,8 @@
     };
   }
 
-  function toHex(n){
-    // 負の数は「-」+ 16進数(絶対値)で表現する(例: -100 → -64)
-    const sign = n < 0 ? '-' : '';
-    return sign + Math.abs(Math.round(n)).toString(16);
-  }
-
   function setDownload(linkId, arr){
-    const text = arr.map(toHex).join('\n');
+    const text = arr.join('\n');
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const link = document.getElementById(linkId);
