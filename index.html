@@ -180,7 +180,7 @@
     <p class="note">
       座標はScratch座標系(中心が原点、X: -240〜240、Y: -180〜180)で、正方形の中心位置を示しています。サイズはピクセル数(辺の長さ)です。<br>
       各フレーム(画像の場合は1フレームのみ)の中で、「色」の値が小さい順に並べ替えてから記録しています。色そのものの値はファイルには含めません。<br>
-      ダウンロードされる<b>data.txt</b>は1つのファイルです。動画全体(全フレーム合計)の正方形の数をNとすると、上から順に「X座標(N行)→Y座標(N行)→明るさ(N行)→色(N行)→大きさ(N行)」の5つのブロックを縦に連結しています。合計でN×5行になります。フレームごとの塊には分かれておらず、フレームをまたいで同じ種類の値がまとまっています(例: X座標ブロックの中は フレーム1のX座標→フレーム2のX座標→…の順)。<br>
+      ダウンロードされる<b>data.txt</b>は1つのファイルです。1つの正方形につき1行で、「X座標<b>z</b>Y座標<b>z</b>大きさ<b>z</b>色<b>z</b>明るさ」のように、5つの値を区切り文字<b>z</b>でつないで記録しています(例: <code>12z-34z8z150z-20</code>)。行の並び順はフレーム順・各フレーム内では色が小さい順です。動画全体の正方形の数がNなら、ファイルは合計N行になります。<br>
       <b>frame_lengths.txt</b>には、各フレームまでの正方形の数の<b>累積合計(累積度数)</b>を1行ずつ記録しています(画像の場合は1行のみ)。例えば各フレームの正方形数が1111個・2222個・1111個なら、このファイルは「1111, 3333, 4444」という3行になります。この値を区切り位置として使うことで、data.txtの各ブロックのどこからどこまでが何フレーム目のデータかを区切ることができます(画像の場合は使わなくても構いません)。<br>
       ダウンロードが始まらない場合は、ボタンを右クリックして「リンク先を保存」を選ぶか、別のブラウザ(Chrome/Edge/Firefoxなど)でこのHTMLファイルを開いて試してください。
     </p>
@@ -429,8 +429,14 @@
     };
   }
 
+  function toHex(n){
+    // 負の数は「-」+ 16進数(絶対値)で表現する(例: -100 → -64)
+    const sign = n < 0 ? '-' : '';
+    return sign + Math.abs(Math.round(n)).toString(16);
+  }
+
   function setDownload(linkId, arr){
-    const text = arr.join('\n');
+    const text = arr.map(toHex).join('\n');
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const link = document.getElementById(linkId);
@@ -480,8 +486,9 @@
     document.getElementById('statEffRes').textContent = effW + 'x' + effH;
     document.getElementById('statMinMax').textContent = totalCount ? (minSizeVal + ' / ' + maxSizeVal) : '-';
 
-    const combined = [].concat(allXs, allYs, allBris, allColors, allSizes);
-    setDownload('dlAllLink', combined);
+    // 各正方形ごとに「X座標z Y座標z大きさz色z明るさ」の1行にまとめる
+    const lines = allXs.map((x, i) => [x, allYs[i], allSizes[i], allColors[i], allBris[i]].join('z'));
+    setDownload('dlAllLink', lines);
     setDownload('dlFrameLenLink', frameLengths);
 
     if (frames.length > 1){
